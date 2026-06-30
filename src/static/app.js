@@ -10,19 +10,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch("/activities");
       const activities = await response.json();
 
-      // Clear loading message
+      // Clear loading message and previous options
       activitiesList.innerHTML = "";
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
+        activityCard.dataset.activityName = name;
+        activityCard.dataset.maxParticipants = details.max_participants;
 
         const spotsLeft = details.max_participants - details.participants.length;
         const participants = details.participants || [];
         const participantList = participants.length
           ? `<ul class="participants-list">${participants
-              .map((participant) => `<li>${participant}</li>`)
+              .map(
+                (participant) => `
+                  <li class="participant-item" data-participant="${participant}">
+                    <span class="participant-name">${participant}</span>
+                    <button class="participant-remove-btn" type="button" aria-label="Remove ${participant}" data-participant="${participant}">✕</button>
+                  </li>
+                `
+              )
               .join("")}</ul>`
           : `<p class="participants-empty">Be the first to sign up!</p>`;
 
@@ -35,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <p><strong>Schedule:</strong> ${details.schedule}</p>
           <div class="participants-section">
             <h5>Participants</h5>
-            ${participantList}
+            <div class="participants-list-container">${participantList}</div>
           </div>
         `;
 
@@ -52,6 +62,67 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Error fetching activities:", error);
     }
   }
+
+  activitiesList.addEventListener("click", async (event) => {
+    const removeButton = event.target.closest(".participant-remove-btn");
+    if (!removeButton) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const activityName = removeButton.closest(".activity-card").dataset.activityName;
+    const participantEmail = removeButton.dataset.participant;
+
+    try {
+      const response = await fetch(
+        `/activities/${encodeURIComponent(activityName)}/participants/${encodeURIComponent(participantEmail)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const result = await response.json();
+
+      if (response.ok) {
+        removeButton.closest(".participant-item").remove();
+
+        const card = removeButton.closest(".activity-card");
+        const participantsList = card.querySelector(".participants-list");
+        const availabilityBadge = card.querySelector(".availability-pill");
+        const participantCount = participantsList ? participantsList.children.length : 0;
+        const maxParticipants = Number(card.dataset.maxParticipants || 0);
+        const spotsLeft = maxParticipants - participantCount;
+
+        if (availabilityBadge) {
+          availabilityBadge.textContent = `${spotsLeft} spots left`;
+        }
+
+        if (!participantsList || participantCount === 0) {
+          const container = card.querySelector(".participants-list-container");
+          if (container) {
+            container.innerHTML = '<p class="participants-empty">Be the first to sign up!</p>';
+          }
+        }
+
+        messageDiv.textContent = result.message;
+        messageDiv.className = "success";
+      } else {
+        messageDiv.textContent = result.detail || "An error occurred";
+        messageDiv.className = "error";
+      }
+
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => {
+        messageDiv.classList.add("hidden");
+      }, 5000);
+    } catch (error) {
+      messageDiv.textContent = "Failed to remove participant. Please try again.";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      console.error("Error removing participant:", error);
+    }
+  });
 
   // Handle form submission
   signupForm.addEventListener("submit", async (event) => {
@@ -71,9 +142,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
 
       if (response.ok) {
+        signupForm.reset();
+        await fetchActivities();
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
-        signupForm.reset();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
